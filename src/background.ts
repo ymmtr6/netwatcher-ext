@@ -3,6 +3,8 @@ import type { NetworkData } from "@/lib/datamodel";
 
 const storage = new Storage();
 
+let ipCache: Record<string, string> = {};
+
 // webRequers API を使ってリクエストを監視
 chrome.webRequest.onCompleted.addListener(
   async (details) => {
@@ -11,19 +13,20 @@ chrome.webRequest.onCompleted.addListener(
     const ip = details.ip || 'N/A';
 
     console.log(`Request to ${domain} with IP ${ip}`);
-    let history = await storage.get("history_url") || {} as NetworkData;
-    if (typeof history === "object") {
-      // 100 件以上のデータがある場合は古いものから削除
-      if (Object.keys(history).length > 100) {
-        const sorted = Object.entries(history).sort((a, b) => a[1].timestamp - b[1].timestamp);
-        delete history[sorted[0][0]];
-      }
-      if (!history[domain] && history[domain]?.ip !== ip) {
-        // データがない場合のみ追加する
-        history = { ...history, [domain]: { ip, timestamp: Date.now() } };
-        // await storage.set("history_url", history);
-      }
+    if (ipCache[domain] !== ip) {
+      ipCache[domain] = ip;
+      console.log(`Cache updated for ${domain}: ${ip}`);
     }
   },
-  { urls: ["<all_urls>"] }
+  { urls: ["<all_urls>"] }, ["responseHeaders"]
 );
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "getIpCache") {
+    const url = new URL(message.url);
+    const ip = ipCache[url.hostname];
+    sendResponse({ ip: ip || "N/A" });
+    return true;
+  }
+  return false;
+});
